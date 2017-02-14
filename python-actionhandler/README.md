@@ -141,6 +141,62 @@ service autopilot-counting-actionhandler start
 service autopilot-counting-actionhandler status
 ```
 
+## Preparing the target system(s)
+
+On the target Windows machines, open a cmd.exe command line using "Run as Administrator" and execute the following commands:
+
+```nohighlight
+winrm quickconfig
+winrm set winrm/config/service @{AllowUnencrypted="true"}
+winrm set winrm/config/winrs @{MaxMemoryPerShellMB="1024"}
+```
+
+Your network connection has to be a "work" network.
+
+## Setting up Kerberos
+
+You need to install the kerberos libraries and tools on the engine node: `yum install krb5-workstation`
+
+The ActionHandler expects kerberos to be set up and the "arago" user to have a TGT (ticket granting ticket) for a securit principal that is a member of the Domain-Admins group.
+
+A sample `/etc/krb5.conf` config file could look like this:
+
+```
+[logging]
+ default = FILE:/var/log/krb5libs.log
+ kdc = FILE:/var/log/krb5kdc.log
+ admin_server = FILE:/var/log/kadmind.log
+
+[libdefaults]
+ default_realm = MPHASIS.DEV
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ ticket_lifetime = 24h
+ renew_lifetime = 7d
+ forwardable = true
+
+[realms]
+ MPHASIS.DEV = {
+  kdc = dc.mphasis.dev
+  admin_server = dc.mphasis.dev
+ }
+
+[domain_realm]
+ .mphasis.dev = MPHASIS.DEV
+ mphasis.dev = MPHASIS.DEV
+
+```
+
+You can get a one-time TGT by switching to the "arago" user and executing `kinit Administrator`, you will then be asked for the domain account's credentials. This will make the ActionHandler work for 24 hours. To have it being authorized continously, we currently suggest you use the "k5start" available at https://www.eyrie.org/~eagle/software/kstart/k5start.html
+
+The functionality of the k5start daemon will be included into the ActionHandler, soon.
+
+The k5start packages available for CentOS/RHEL do not contain an init script to startup the daemon automatically, so you'll have to provide one on your own.
+
+## Using an encrypted connection
+
+With the current setup, the connection to the target machines will not be encrypted in any way. Support for WinRM SSL listeners will be included, soon. This also mean additional effort in setting up the target systems. For now, use this ActionHandler only in lab environments and as a proof–of–concept.
+
 ## Developing your own Actionhandler
 
 A complete documentation is still missing. For the time being, please have a look at `bin/autopilot-counting-rhyme-actionhandler.py`. The whole, documented python code for this sample ActionHandler is in this single file.
