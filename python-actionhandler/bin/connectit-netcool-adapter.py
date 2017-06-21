@@ -20,7 +20,6 @@ from arago.common.daemon import daemon as Daemon
 from arago.common.logging.logger import Logger
 
 from arago.pyconnectit.common.rest import Events, Queue, QueueObj
-
 from arago.pyconnectit.connectors.common.trigger import FastTrigger
 from arago.pyconnectit.connectors.common.handlers.log_status_change import LogStatusChange
 from arago.pyconnectit.connectors.common.handlers.log_comments import LogComments
@@ -33,9 +32,10 @@ from arago.pyconnectit.common.rest.plugins.rest_logger import RESTLogger
 from arago.pyconnectit.common.rest.plugins.restrict_environment import RestrictEnvironment
 from arago.pyconnectit.common.rest.plugins.json_translator import JSONTranslator
 from arago.pyconnectit.common.rest.plugins.auth.basic import BasicAuthentication
-from arago.pyconnectit.common.rest.plugins.store_deltas import StoreDeltas
 from arago.pyconnectit.protocols.soap.plugins.soap_logger import SOAPLogger
 from arago.pyconnectit.common.rest.plugins.rest_logger import RESTLogger
+from arago.pyconnectit.common.kafka import SDFConsumer
+from arago.pyconnectit.common.kafka.plugins.store_deltas import StoreDeltas
 
 class ConnectitDaemon(Daemon):
 	def run(self):
@@ -111,6 +111,10 @@ class ConnectitDaemon(Daemon):
 				db_path = os.path.join(adapter_config['DeltaStore']['data_dir'], env),
 				max_size = 1024 * 1024 * adapter_config.getint('DeltaStore', 'max_size_in_mb', fallback=1024),
 				schemafile = open(environments_config[env]['event_schema']))
+			for env in environments_config.sections()
+		}
+		topic_map = {
+			environments_config[env]['kafka_topic']:env
 			for env in environments_config.sections()
 		}
 
@@ -234,9 +238,9 @@ class ConnectitDaemon(Daemon):
 		middleware = [
 			RestrictEnvironment(environments_config.sections()),
 			RequireJSON(),
-			JSONTranslator(),
-			StoreDeltas([events], delta_store_map)
+			JSONTranslator()
 		]
+		kafka_middleware = [StoreDeltas(topic_map, delta_store_map)]
 		try:
 			if adapter_config.getboolean('Authentication', 'enabled'):
 				middleware.append(BasicAuthentication.from_config(adapter_config['Authentication']))
@@ -263,6 +267,11 @@ class ConnectitDaemon(Daemon):
 			log=None,
 			error_log=logger)
 
+		kafka_consumer = SDFConsumer(
+			topics=['Event'],
+			bootstrap_servers='connect-beta.nfi.dev:9099',
+			handlers=kafka_middleware)
+
 		# Handle graceful shutdown
 
 		def exit_gracefully():
@@ -279,7 +288,8 @@ class ConnectitDaemon(Daemon):
 
 		logger.info("Starting REST service at {url}".format(
 			url=urlunparse(baseurl)))
-		server.serve_forever()
+		server.start()
+		kafka_consumer.serve_forever()
 
 
 if __name__ == "__main__":
